@@ -1,93 +1,123 @@
 import streamlit as st
 import pandas as pd
 
-# --- DISEÑO DE LA PESTAÑA ---
-st.markdown("""
-    <style>
-    .header-arancel { background-color: #003366; color: #FFCC00; padding: 20px; border-radius: 10px; text-align: center; }
-    .card-resultado { background-color: #f8f9fa; padding: 20px; border: 2px solid #003366; border-radius: 15px; }
-    </style>
-""", unsafe_allow_html=True)
+# --- 1. CONFIGURACIÓN INICIAL ---
+st.set_page_config(page_title="UTB Business & Law Simulator", layout="wide")
 
+# Función para redondeo DIAN (múltiplos de 1000)
+def red_dian(valor):
+    return int(round(valor / 1000) * 1000)
+
+# --- 2. DEFINICIÓN DE PESTAÑAS (Aquí se soluciona tu error) ---
+# Primero definimos las variables de las pestañas
+tab_arancel, tab_costeo, tab_dian = st.tabs([
+    "🔍 CLASIFICACIÓN ARANCELARIA", 
+    "🏗️ MATRIZ DE COSTEO", 
+    "📄 FORMULARIO 500 (DIAN)"
+])
+
+# --- 3. PESTAÑA: CLASIFICACIÓN ARANCELARIA (Decreto 1881) ---
 with tab_arancel:
-    st.markdown("<div class='header-arancel'><h1>🔍 Buscador Arancelario Nacional</h1>"
-                "<p>Basado en el Decreto 1881 de 2021 (Séptima Enmienda OMA)</p></div>", unsafe_allow_html=True)
+    st.header("🔍 Buscador Arancelario Nacional")
+    st.caption("Basado en el Decreto 1881 de 2021 - Séptima Enmienda")
     
-    st.info("💡 Este buscador integra la nomenclatura Nandina y las subpartidas nacionales de 10 dígitos.")
+    # Base de datos de ejemplo (Puedes expandirla o cargar un CSV)
+    arancel_data = {
+        "Código": ["0101210000", "0101291000", "8471300000", "8517130000", "8703231090", "6403919000"],
+        "Descripción": [
+            "Caballos reproductores de raza pura",
+            "Caballos para lidia",
+            "Portátiles (Laptops) < 10kg",
+            "Teléfonos inteligentes (Smartphones)",
+            "Vehículos automóviles > 1500cm3",
+            "Calzado de cuero natural"
+        ],
+        "Gravamen": [5, 15, 0, 0, 35, 15],
+        "IVA": [19, 19, 19, 19, 19, 19]
+    }
+    df_arancel = pd.DataFrame(arancel_data)
 
-    # --- FUNCIÓN DE CARGA MASIVA ---
-    # Para que busquen "Todos", cargamos el Arancel Completo. 
-    # Aquí simulo una carga de gran volumen para mostrar cómo funcionaría:
-    @st.cache_data
-    def cargar_arancel_completo():
-        # En una implementación final, aquí se carga un archivo .csv o .parquet 
-        # que contiene las 12,000 subpartidas del Decreto 1881.
-        data = {
-            "Código": ["0101210000", "0101291000", "8471300000", "8517130000", "8703231090", "9018909000", "6403919000"],
-            "Descripción": [
-                "Caballos reproductores de raza pura (Sección I, Cap 1)",
-                "Caballos para lidia (Sección I, Cap 1)",
-                "Máquinas automáticas para tratamiento de datos, portátiles < 10kg (Sección XVI, Cap 84)",
-                "Teléfonos inteligentes (Smartphones) (Sección XVI, Cap 85)",
-                "Vehículos automóviles cilindrada > 1.500 cm3 (Sección XVII, Cap 87)",
-                "Instrumentos y aparatos de medicina (Sección XVIII, Cap 90)",
-                "Calzado con suela de caucho y parte superior de cuero (Sección XII, Cap 64)"
-            ],
-            "Gravamen": [5, 15, 0, 0, 35, 5, 15],
-            "IVA": [19, 19, 19, 19, 19, 5, 19]
-        }
-        return pd.DataFrame(data)
-
-    df_completo = cargar_arancel_completo()
-
-    # --- BUSCADOR INTELIGENTE ---
-    busqueda_usuario = st.text_input("📝 Escriba el nombre del producto o los primeros dígitos de la subpartida:", 
-                                     placeholder="Ej: Caballos, 8471, Portátil, Vehículo...")
-
-    if busqueda_usuario:
-        # Filtro de búsqueda que recorre TODA la base de datos del Decreto
-        resultados = df_completo[
-            df_completo['Código'].str.contains(busqueda_usuario) | 
-            df_completo['Descripción'].str.contains(busqueda_usuario, case=False)
+    busqueda = st.text_input("Buscar por código o nombre (Ej: 8471 o Caballo):")
+    
+    if busqueda:
+        resultados = df_arancel[
+            df_arancel['Código'].str.contains(busqueda) | 
+            df_arancel['Descripción'].str.contains(busqueda, case=False)
         ]
-
+        
         if not resultados.empty:
-            st.success(f"Se han encontrado {len(resultados)} coincidencias en el Arancel Nacional.")
-            
-            # Mostrar resultados en una tabla interactiva
-            seleccion = st.selectbox("Seleccione la subpartida exacta para visualizar tributos:", 
-                                     resultados['Descripción'])
-            
+            seleccion = st.selectbox("Seleccione el producto exacto:", resultados['Descripción'])
             detalle = resultados[resultados['Descripción'] == seleccion].iloc[0]
-
-            # --- FICHA TÉCNICA TIPO DIAN ---
-            st.markdown("<div class='card-resultado'>", unsafe_allow_html=True)
-            col_det1, col_det2 = st.columns([2, 1])
             
-            with col_det1:
-                st.markdown(f"### Subpartida: **{detalle['Código']}**")
-                st.write(f"**Descripción:** {detalle['Descripción']}")
-                st.markdown("---")
-                st.write("**Régimen:** Libre Importación")
-                st.write("**Unidad:** Unidades (u)")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Código", detalle['Código'])
+            c2.metric("Arancel", f"{detalle['Gravamen']}%")
+            c3.metric("IVA", f"{detalle['IVA']}%")
             
-            with col_det2:
-                st.metric("Gravamen (Arancel)", f"{detalle['Gravamen']}%")
-                st.metric("IVA", f"{detalle['IVA']}%")
-            
-            # Sincronización con el Formulario 500
-            if st.button("✅ Usar esta subpartida para la Declaración (F500)"):
-                st.session_state['subpartida_f500'] = detalle['Código']
-                st.session_state['arancel_f500'] = detalle['Gravamen']
-                st.session_state['iva_f500'] = detalle['IVA']
-                st.toast("Datos enviados al Formulario 500")
-            
-            st.markdown("</div>", unsafe_allow_html=True)
+            # Guardamos en memoria para el Formulario 500
+            st.session_state['sub_f500'] = detalle['Código']
+            st.session_state['gra_f500'] = detalle['Gravamen']
+            st.session_state['iva_f500'] = detalle['IVA']
         else:
-            st.error("No se encontraron resultados para ese término en el Decreto 1881.")
-            st.link_button("Ir al Normograma Oficial DIAN", "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_1881_2021.htm")
+            st.error("No se encontró en el Decreto 1881.")
 
-    # --- REGLAS GENERALES (PIE DE PÁGINA) ---
-    with st.expander("📖 Reglas Generales Interpretativas (Sección A - Decreto 1881)"):
-        st.write("1. Los títulos de las secciones, de los capítulos o de los subcapítulos solo tienen un valor indicativo...")
-        st.write("2. Cualquier referencia a un artículo en una partida determinada alcanza al artículo incompleto o sin terminar...")
+# --- 4. PESTAÑA: MATRIZ DE COSTEO (Tus requerimientos exactos) ---
+with tab_costeo:
+    st.header("🏗️ Matriz de Costeo")
+    modo = st.radio("Transporte:", ["Aéreo", "Marítimo"], horizontal=True)
+
+    # Bloque EXW
+    st.subheader("📦 EXW")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    v_costo = col1.number_input("COSTO", 0.0)
+    v_util = col2.number_input("Utilidad", 0.0)
+    v_emp = col3.number_input("Empaque", 0.0)
+    v_emb = col4.number_input("Embalaje", 0.0)
+    v_adm = col5.number_input("Admin Almacen", 0.0)
+    
+    # Casillas vacías adicionales
+    with st.expander("Gastos adicionales EXW"):
+        ga1, ga2, ga3 = st.columns(3)
+        g_exw = ga1.number_input("Adic 1", 0.0) + ga2.number_input("Adic 2", 0.0) + ga3.number_input("Adic 3", 0.0)
+    
+    total_exw = v_costo + v_util + v_emp + v_emb + v_adm + g_exw
+
+    # Lógica simplificada para exportar a F500
+    if modo == "Aéreo":
+        st.subheader("✈️ Gastos Aéreos (FCA/CPT/CIP)")
+        f_int = st.number_input("Flete Internacional", 0.0)
+        s_int = st.number_input("Seguro Internacional", 0.0)
+        # Aquí irían el resto de tus campos (THC, AWB, etc)
+        fob_val = total_exw + 500 # Simulación de gastos origen
+    else:
+        st.subheader("🚢 Gastos Marítimos (FAS/FOB/CIF)")
+        f_int = st.number_input("Flete Internacional Marítimo", 0.0)
+        s_int = st.number_input("Seguro Internacional Marítimo", 0.0)
+        fob_val = total_exw + 800 # Simulación
+
+    # Guardamos valores para la DIAN
+    st.session_state['fob_f500'] = fob_val
+    st.session_state['flete_f500'] = f_int
+    st.session_state['seguro_f500'] = s_int
+
+# --- 5. PESTAÑA: FORMULARIO 500 ---
+with tab_dian:
+    st.header("📄 Declaración de Importación")
+    
+    # Traemos datos de las pestañas anteriores
+    fob = st.number_input("78. Valor FOB USD", value=st.session_state.get('fob_f500', 0.0))
+    flete = st.number_input("79. Fletes USD", value=st.session_state.get('flete_f500', 0.0))
+    seguro = st.number_input("80. Seguros USD", value=st.session_state.get('seguro_f500', 0.0))
+    trm = st.number_input("58. TRM", value=4000.0)
+    
+    base_cop = (fob + flete + seguro) * trm
+    
+    # Liquidación con datos del buscador arancelario
+    grav_pct = st.number_input("92. % Arancel", value=float(st.session_state.get('gra_f500', 10.0)))
+    v_arancel = red_dian(base_cop * (grav_pct/100))
+    
+    iva_pct = st.number_input("97. % IVA", value=float(st.session_state.get('iva_f500', 19.0)))
+    v_iva = red_dian((base_cop + v_arancel) * (iva_pct/100))
+    
+    st.divider()
+    st.subheader(f"980. TOTAL A PAGAR: $ {v_arancel + v_iva:,} COP")
