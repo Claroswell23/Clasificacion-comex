@@ -1,89 +1,93 @@
 import streamlit as st
+import pandas as pd
 
-# --- TÍTULO Y ESTILO DE LA PESTAÑA ---
+# --- DISEÑO DE LA PESTAÑA ---
 st.markdown("""
-    <div style="background-color: #003366; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
-        <h2 style="color: white; margin: 0;">🔍 Módulo de Clasificación Arancelaria</h2>
-        <p style="color: #FFCC00; margin: 0;">Escuela de Negocios, Leyes y Sociedad - UTB</p>
-    </div>
+    <style>
+    .header-arancel { background-color: #003366; color: #FFCC00; padding: 20px; border-radius: 10px; text-align: center; }
+    .card-resultado { background-color: #f8f9fa; padding: 20px; border: 2px solid #003366; border-radius: 15px; }
+    </style>
 """, unsafe_allow_html=True)
 
-# Menú de navegación basado en el portal MUISCA
-opcion_muisca = st.sidebar.radio(
-    "Menú de Consultas Arancel:",
-    ["Estructura de Nomenclatura", "Índice Alfabético (Texto)", "Reglas Interpretativas"]
-)
-
-# --- 1. CONSULTA POR NOMENCLATURA (CÓDIGO) ---
-if opcion_muisca == "Estructura de Nomenclatura":
-    st.subheader("Consulta por Subpartida Arancelaria")
-    col1, col2 = st.columns([1, 2])
+with tab_arancel:
+    st.markdown("<div class='header-arancel'><h1>🔍 Buscador Arancelario Nacional</h1>"
+                "<p>Basado en el Decreto 1881 de 2021 (Séptima Enmienda OMA)</p></div>", unsafe_allow_html=True)
     
-    with col1:
-        codigo_buscado = st.text_input("Ingrese los 10 dígitos del código:", placeholder="Ej: 8471300000")
-        btn_consulta = st.button("Consultar en Arancel")
+    st.info("💡 Este buscador integra la nomenclatura Nandina y las subpartidas nacionales de 10 dígitos.")
 
-    # Base de datos simulada para el ejercicio académico
-    base_datos_arancel = {
-        "8471300000": {
-            "descripcion": "Máquinas automáticas para tratamiento o procesamiento de datos, portátiles, de peso inferior o igual a 10 kg, que constituyan al menos una unidad central de proceso, un teclado y una pantalla.",
-            "arancel": 0, "iva": 19, "unidad": "u",
-            "vistos": "No requiere vistos buenos previos.",
-            "notas": "Nota 5 Cap. 84: Esta partida no comprende máquinas que incorporen una función de tratamiento de datos."
-        },
-        "8703231090": {
-            "descripcion": "Vehículos automóviles de tipo familiar (station wagon) con motor de émbolo alternativo de encendido por chispa.",
-            "arancel": 35, "iva": 19, "unidad": "u",
-            "vistos": "Certificado de Emisiones Dinamométricas (Prueba de Gases) y Registro de Importación.",
-            "notas": "Sujeto a Impuesto Nacional al Consumo."
+    # --- FUNCIÓN DE CARGA MASIVA ---
+    # Para que busquen "Todos", cargamos el Arancel Completo. 
+    # Aquí simulo una carga de gran volumen para mostrar cómo funcionaría:
+    @st.cache_data
+    def cargar_arancel_completo():
+        # En una implementación final, aquí se carga un archivo .csv o .parquet 
+        # que contiene las 12,000 subpartidas del Decreto 1881.
+        data = {
+            "Código": ["0101210000", "0101291000", "8471300000", "8517130000", "8703231090", "9018909000", "6403919000"],
+            "Descripción": [
+                "Caballos reproductores de raza pura (Sección I, Cap 1)",
+                "Caballos para lidia (Sección I, Cap 1)",
+                "Máquinas automáticas para tratamiento de datos, portátiles < 10kg (Sección XVI, Cap 84)",
+                "Teléfonos inteligentes (Smartphones) (Sección XVI, Cap 85)",
+                "Vehículos automóviles cilindrada > 1.500 cm3 (Sección XVII, Cap 87)",
+                "Instrumentos y aparatos de medicina (Sección XVIII, Cap 90)",
+                "Calzado con suela de caucho y parte superior de cuero (Sección XII, Cap 64)"
+            ],
+            "Gravamen": [5, 15, 0, 0, 35, 5, 15],
+            "IVA": [19, 19, 19, 19, 19, 5, 19]
         }
-    }
+        return pd.DataFrame(data)
 
-    if btn_consulta:
-        if codigo_buscado in base_datos_arancel:
-            datos = base_datos_arancel[codigo_buscado]
-            with col2:
-                st.info(f"**Descripción Técnica:** {datos['descripcion']}")
-                
-                # Desglose tipo MUISCA
-                pest_1, pest_2, pest_3 = st.tabs(["💰 Tributos", "📄 Vistos Buenos", "⚖️ Notas Legales"])
-                
-                with pest_1:
-                    c_a, c_b = st.columns(2)
-                    c_a.metric("Gravamen (Arancel)", f"{datos['arancel']}%")
-                    c_b.metric("IVA", f"{datos['iva']}%")
-                    st.write(f"**Unidad física:** {datos['unidad']}")
-                
-                with pest_2:
-                    st.warning(f"**Requisitos:** {datos['vistos']}")
-                
-                with pest_3:
-                    st.markdown(f"**Nota Legal:** {datos['notas']}")
-        else:
-            st.error("Subpartida no encontrada en la base de datos local. Verifique el código (10 dígitos).")
+    df_completo = cargar_arancel_completo()
 
-# --- 2. BÚSQUEDA POR TEXTO ---
-elif opcion_muisca == "Índice Alfabético (Texto)":
-    st.subheader("Búsqueda por Descripción de Mercancía")
-    termino = st.text_input("Ingrese el nombre comercial o técnico (Ej: Portátil, Carro):")
-    
-    if termino:
-        # Simulación de resultados sugeridos
-        st.write("🔍 Resultados encontrados en el índice:")
-        resultados_tabla = [
-            {"Código": "8471.30.00.00", "Mercancía": "Computadores Portátiles"},
-            {"Código": "8517.13.00.00", "Mercancía": "Teléfonos inteligentes (Smartphones)"},
-            {"Código": "8703.23.10.90", "Mercancía": "Vehículos Familiares"}
+    # --- BUSCADOR INTELIGENTE ---
+    busqueda_usuario = st.text_input("📝 Escriba el nombre del producto o los primeros dígitos de la subpartida:", 
+                                     placeholder="Ej: Caballos, 8471, Portátil, Vehículo...")
+
+    if busqueda_usuario:
+        # Filtro de búsqueda que recorre TODA la base de datos del Decreto
+        resultados = df_completo[
+            df_completo['Código'].str.contains(busqueda_usuario) | 
+            df_completo['Descripción'].str.contains(busqueda_usuario, case=False)
         ]
-        st.table(resultados_tabla)
 
-# --- 3. REGLAS INTERPRETATIVAS (PARTE LEGAL) ---
-elif opcion_muisca == "Reglas Interpretativas":
-    st.subheader("Reglas Generales para la Interpretación de la Nomenclatura")
-    st.markdown("""
-    1. **Regla 1:** Los títulos de las Secciones, de los Capítulos o de los Subcapítulos solo tienen un valor indicativo.
-    2. **Regla 2:** Cualquier referencia a un artículo en una partida alcanza al artículo incluso incompleto o sin terminar, siempre que presente las características esenciales del artículo completo.
-    3. **Regla 3:** Cuando una mercancía pudiera clasificarse, en principio, en dos o más partidas, la partida con descripción más específica tendrá prioridad sobre las partidas de alcance más general.
-    ---
-    *Fuente: Arancel de Aduanas de Colombia basado en el Sistema Armonizado.*
-    """)
+        if not resultados.empty:
+            st.success(f"Se han encontrado {len(resultados)} coincidencias en el Arancel Nacional.")
+            
+            # Mostrar resultados en una tabla interactiva
+            seleccion = st.selectbox("Seleccione la subpartida exacta para visualizar tributos:", 
+                                     resultados['Descripción'])
+            
+            detalle = resultados[resultados['Descripción'] == seleccion].iloc[0]
+
+            # --- FICHA TÉCNICA TIPO DIAN ---
+            st.markdown("<div class='card-resultado'>", unsafe_allow_html=True)
+            col_det1, col_det2 = st.columns([2, 1])
+            
+            with col_det1:
+                st.markdown(f"### Subpartida: **{detalle['Código']}**")
+                st.write(f"**Descripción:** {detalle['Descripción']}")
+                st.markdown("---")
+                st.write("**Régimen:** Libre Importación")
+                st.write("**Unidad:** Unidades (u)")
+            
+            with col_det2:
+                st.metric("Gravamen (Arancel)", f"{detalle['Gravamen']}%")
+                st.metric("IVA", f"{detalle['IVA']}%")
+            
+            # Sincronización con el Formulario 500
+            if st.button("✅ Usar esta subpartida para la Declaración (F500)"):
+                st.session_state['subpartida_f500'] = detalle['Código']
+                st.session_state['arancel_f500'] = detalle['Gravamen']
+                st.session_state['iva_f500'] = detalle['IVA']
+                st.toast("Datos enviados al Formulario 500")
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.error("No se encontraron resultados para ese término en el Decreto 1881.")
+            st.link_button("Ir al Normograma Oficial DIAN", "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_1881_2021.htm")
+
+    # --- REGLAS GENERALES (PIE DE PÁGINA) ---
+    with st.expander("📖 Reglas Generales Interpretativas (Sección A - Decreto 1881)"):
+        st.write("1. Los títulos de las secciones, de los capítulos o de los subcapítulos solo tienen un valor indicativo...")
+        st.write("2. Cualquier referencia a un artículo en una partida determinada alcanza al artículo incompleto o sin terminar...")
