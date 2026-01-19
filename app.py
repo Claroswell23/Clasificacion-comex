@@ -2,81 +2,91 @@ import streamlit as st
 import PyPDF2
 import re
 
-# --- CONFIGURACIÓN DE LA PESTAÑA ---
-st.header("🔍 Buscador Arancelario Avanzado")
-st.caption("Extracción inteligente de Código, Descripción y Arancel desde el Decreto 1881")
+# --- CONFIGURACIÓN DE INTERFAZ ---
+st.title("🔍 Clasificación Arancelaria UTB")
+st.subheader("Buscador Inteligente - Decreto 1881 de 2021")
 
-def buscar_en_pdf(query, ruta_pdf):
+def buscar_y_extraer_codigo(query, ruta_pdf):
     resultados = []
     try:
         with open(ruta_pdf, "rb") as f:
             reader = PyPDF2.PdfReader(f)
-            # Escaneamos desde la página 10 (inicio de nomenclatura)
-            for i in range(10, len(reader.pages)):
-                texto_pagina = reader.pages[i].extract_text()
+            # Escaneo de páginas de nomenclatura (Capítulos 1 en adelante)
+            for num_pag in range(10, len(reader.pages)):
+                texto = reader.pages[num_pag].extract_text()
                 
-                if query.lower() in texto_pagina.lower():
-                    lineas = texto_pagina.split('\n')
-                    for j, linea in enumerate(lineas):
+                if query.lower() in texto.lower():
+                    lineas = texto.split('\n')
+                    for i, linea in enumerate(lineas):
                         if query.lower() in linea.lower():
-                            # 1. EXTRAER CÓDIGO (Patrón: 4 dígitos + punto + 2 + punto + 2 + punto + 2)
+                            # 1. BUSCAR CÓDIGO (Patrón de 10 dígitos con puntos: XXXX.XX.XX.XX)
+                            # Buscamos en la línea actual o en la anterior (a veces el código está arriba del nombre)
                             codigo_match = re.search(r'(\d{4}\.\d{2}\.\d{2}\.\d{2})', linea)
-                            codigo_propuesto = codigo_match.group(1) if codigo_match else "No detectado"
+                            if not codigo_match and i > 0:
+                                codigo_match = re.search(r'(\d{4}\.\d{2}\.\d{2}\.\d{2})', lineas[i-1])
                             
-                            # 2. EXTRAER ARANCEL (El último número de la línea suele ser el gravamen)
-                            # Buscamos un número de 1 a 3 dígitos al final de la línea
+                            codigo_final = codigo_match.group(1) if codigo_match else "No detectado"
+                            
+                            # 2. EXTRAER GRAVAMEN (Último número de la línea)
                             gravamen_match = re.findall(r'\s(\d{1,3})$', linea.strip())
                             gravamen = gravamen_match[0] if gravamen_match else "0"
                             
-                            # 3. LIMPIAR DESCRIPCIÓN (Quitar el código y el arancel de la línea)
-                            descripcion = linea.replace(codigo_propuesto, "").strip()
-                            # Intentar capturar la línea siguiente si la descripción continúa
-                            if j + 1 < len(lineas) and not re.match(r'^\d', lineas[j+1]):
-                                descripcion += " " + lineas[j+1]
+                            # 3. LIMPIAR DESCRIPCIÓN
+                            desc_limpia = linea.replace(codigo_final, "").strip()
+                            # Eliminar el gravamen del final del texto de la descripción
+                            desc_limpia = re.sub(r'\s\d{1,3}$', '', desc_limpia)
 
-                            resultados.append({
-                                "codigo": codigo_propuesto,
-                                "descripcion": descripcion,
-                                "arancel": gravamen
-                            })
+                            if codigo_final != "No detectado": # Solo proponer si hay código
+                                resultados.append({
+                                    "codigo": codigo_final,
+                                    "descripcion": desc_limpia,
+                                    "arancel": gravamen
+                                })
             return resultados
     except Exception as e:
-        st.error(f"Error técnico: {e}")
+        st.error(f"Error al leer el PDF: {e}")
         return []
 
-# --- INTERFAZ DE USUARIO ---
-ruta_archivo = "decreto_1881_2021.pdf"
-query = st.text_input("Buscar material o código:", placeholder="Ej: Caballos, 8471, Polietileno...")
+# --- LÓGICA DE LA APLICACIÓN ---
+busqueda = st.text_input("Ingrese el material a clasificar:", placeholder="Ej: Caballos, Polímeros, Laptops...")
 
-if query:
-    with st.spinner('Analizando el PDF oficial...'):
-        hallazgos = buscar_en_pdf(query, ruta_archivo)
+if busqueda:
+    with st.spinner('Analizando nomenclatura oficial...'):
+        hallazgos = buscar_y_extraer_codigo(busqueda, "decreto_1881_2021.pdf")
         
         if hallazgos:
-            st.success(f"Se encontraron {len(hallazgos)} coincidencias.")
+            st.success(f"Se han identificado {len(hallazgos)} opciones en el Decreto 1881:")
             
-            for idx, item in enumerate(hallazgos[:10]): # Mostramos los primeros 10
+            for idx, item in enumerate(hallazgos[:10]):
                 with st.container():
-                    st.markdown(f"#### Opción {idx+1}")
-                    col1, col2, col3 = st.columns([1.5, 3, 1])
+                    col_cod, col_info, col_btn = st.columns([1.5, 3, 1])
                     
-                    with col1:
-                        st.markdown("**Código Sugerido**")
-                        st.code(item["codigo"])
+                    with col_cod:
+                        st.markdown("**Código Propuesto**")
+                        st.info(f"**{item['codigo']}**")
                     
-                    with col2:
-                        st.markdown("**Descripción Técnica**")
-                        st.info(item["descripcion"])
-                        
-                    with col3:
-                        st.markdown("**Arancel**")
-                        st.metric("Grv %", f"{item['arancel']}%")
+                    with col_info:
+                        st.markdown("**Descripción Encontrada**")
+                        st.write(item['descripcion'])
+                        st.caption(f"Gravamen sugerido: {item['arancel']}%")
                     
-                    if st.button(f"Asignar Opción {idx+1}", key=f"btn_{idx}"):
-                        # Guardamos en session_state para el Formulario 500
-                        st.session_state['sub_f500'] = item['codigo']
-                        st.session_state['gra_f500'] = item['arancel']
-                        st.toast(f"Código {item['codigo']} asignado correctamente")
+                    with col_btn:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("Asociar Código", key=f"btn_{idx}_{item['codigo']}"):
+                            # Asignamos los valores a las variables globales para el resto de la app
+                            st.session_state['codigo_clasificado'] = item['codigo']
+                            st.session_state['arancel_p500'] = item['arancel']
+                            st.success(f"Asociado: {item['codigo']}")
                     st.divider()
         else:
-            st.warning("No se encontró información. Intente con una palabra más específica.")
+            st.warning("No se encontró un código asociado a ese nombre. Intente con el nombre técnico.")
+
+# --- VISUALIZACIÓN DE ESTRUCTURA ---
+with st.expander("📌 Ayuda: Cómo leer el código propuesto"):
+    st.write("La subpartida nacional propuesta consta de 10 dígitos:")
+    
+    st.markdown("""
+    - **6 primeros:** Sistema Armonizado (Mundial)
+    - **8 primeros:** Nandina (Comunidad Andina)
+    - **10 dígitos:** Subpartida Nacional (Colombia - Decreto 1881)
+    """)
