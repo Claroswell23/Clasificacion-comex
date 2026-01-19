@@ -1,51 +1,75 @@
 import streamlit as st
+import streamlit as st
 import pandas as pd
 import PyPDF2
-import os
+import re
 
-# --- INICIO DEL MÓDULO DE CLASIFICACIÓN ---
-def modulo_clasificacion_arancelaria():
-    st.header("🔍 Buscador Arancelario (Decreto 1881 de 2021)")
-    st.info("Consulta integral basada en el archivo PDF oficial cargado.")
+# --- CONFIGURACIÓN DE LA PESTAÑA ---
+st.markdown("### 📋 Detalle de Subpartida - Decreto 1881")
 
-    ruta_pdf = "decreto_1881_2021.pdf"
+def extraer_datos_arancel(query, ruta_pdf):
+    resultados = []
+    try:
+        with open(ruta_pdf, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            # Escaneamos el cuerpo del decreto (desde pág 10 para evitar el índice)
+            for i in range(10, len(reader.pages)):
+                texto_pagina = reader.pages[i].extract_text()
+                
+                if query.lower() in texto_pagina.lower():
+                    # Buscamos líneas que empiecen con un código arancelario (ej: 0101.21.00.00)
+                    lineas = texto_pagina.split('\n')
+                    for j, linea in enumerate(lineas):
+                        if query.lower() in linea.lower():
+                            # Intentamos capturar la línea actual y la siguiente por si la descripción es larga
+                            descripcion_completa = linea
+                            if j + 1 < len(lineas) and not re.match(r'^\d', lineas[j+1]):
+                                descripcion_completa += " " + lineas[j+1]
+                            
+                            # Expresión regular para buscar el gravamen (número al final de la línea)
+                            gravamen_match = re.findall(r'(\d+)\s*$', linea)
+                            gravamen = gravamen_match[0] if gravamen_match else "Ver Notas"
+                            
+                            resultados.append({
+                                "Contenido": descripcion_completa,
+                                "Arancel_Sugerido": gravamen
+                            })
+            return resultados
+    except Exception as e:
+        st.error(f"Error al procesar el PDF: {e}")
+        return []
 
-    # Verificamos si el archivo existe antes de intentar leerlo
-    if os.path.exists(ruta_pdf):
-        query = st.text_input("📝 Ingrese subpartida o nombre de producto:", placeholder="Ej: 8471 o Caballos")
+# --- INTERFAZ ---
+archivo_pdf = "decreto_1881_2021.pdf"
+busqueda = st.text_input("Ingrese subpartida o producto para ver descripción y arancel:", placeholder="Ej: 8471.30 o Computadores")
+
+if busqueda:
+    with st.spinner('Buscando en el Decreto oficial...'):
+        lista_hallazgos = extraer_datos_arancel(busqueda, archivo_pdf)
         
-        if query:
-            with st.spinner('Escaneando el Decreto 1881...'):
-                try:
-                    with open(ruta_pdf, "rb") as f:
-                        reader = PyPDF2.PdfReader(f)
-                        resultados = []
+        if lista_hallazgos:
+            st.success(f"Se encontraron {len(lista_hallazgos)} coincidencias.")
+            
+            for item in lista_hallazgos[:10]: # Limitamos para no saturar
+                with st.container():
+                    st.markdown("---")
+                    col_desc, col_ara = st.columns([3, 1])
+                    
+                    with col_desc:
+                        st.markdown("**📄 Descripción Completa del Decreto:**")
+                        st.info(item["Contenido"])
+                    
+                    with col_ara:
+                        st.markdown("**💰 Arancel (Grv %):**")
+                        st.metric("Gravamen", f"{item['Arancel_Sugerido']}%")
                         
-                        # Buscamos en una selección de páginas para optimizar velocidad
-                        # (Puedes aumentar el rango de páginas según necesites)
-                        for i in range(5, 150): 
-                            page_text = reader.pages[i].extract_text()
-                            if query.lower() in page_text.lower():
-                                # Extraemos la línea o párrafo que contiene el término
-                                for linea in page_text.split('\n'):
-                                    if query.lower() in linea.lower():
-                                        resultados.append(linea)
-                        
-                        if resultados:
-                            st.success(f"Se encontraron {len(resultados)} coincidencias.")
-                            for idx, r in enumerate(resultados[:20]): # Mostrar top 20
-                                with st.expander(f"Ver coincidencia {idx+1}"):
-                                    st.write(r)
-                                    # Botón para simular selección
-                                    if st.button("Usar estos datos", key=f"btn_{idx}"):
-                                        st.session_state['sub_activa'] = r
-                                        st.toast("Dato referenciado")
-                        else:
-                            st.warning("No se encontraron resultados exactos. Intente con términos más generales.")
-                except Exception as e:
-                    st.error(f"Error al leer el PDF: {e}")
-    else:
-        st.error(f"⚠️ No se encontró el archivo '{ruta_pdf}'. Asegúrate de que esté subido en GitHub en la misma carpeta que app.py.")
+                        # Botón para asignar al Formulario 500
+                        if st.button("Asignar", key=item["Contenido"]):
+                            st.session_state['arancel_manual'] = item['Arancel_Sugerido']
+                            st.toast("Arancel cargado")
+        else:
+            st.warning("No se encontró el término. Pruebe usando el formato de puntos (ej: 0101.21)")
 
-# Ejecutar módulo
-modulo_clasificacion_arancelaria()
+# --- NOTA TÉCNICA ---
+st.divider()
+st.caption("Nota: La extracción automática depende de la capa de texto del PDF. Para subpartidas complejas, verifique siempre las 'Notas de Vigencia' al inicio del documento.")
