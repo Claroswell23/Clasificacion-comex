@@ -2,101 +2,85 @@ import streamlit as st
 import pandas as pd
 import PyPDF2
 import re
+import os
 
-# --- CONFIGURACIÓN DE PESTAÑA ---
-st.title("🔍 Clasificación Arancelaria Jerárquica")
-st.caption("Consulta basada en el Decreto 1881 de 2021")
-
-def buscar_jerarquia_avanzada(query, ruta_pdf):
+def buscar_con_residuales(query, ruta_pdf):
     resultados = []
     try:
-        if not os.path.exists(ruta_pdf):
-            st.error("Archivo PDF no encontrado.")
-            return []
-            
         with open(ruta_pdf, "rb") as f:
             reader = PyPDF2.PdfReader(f)
-            # Escaneamos el cuerpo del arancel
+            # Diccionario para agrupar por partida de 4 dígitos
+            partidas_detectadas = set()
+            
+            # PASO 1: Identificar qué partidas de 4 dígitos contienen el material
             for num_pag in range(10, len(reader.pages)):
                 texto = reader.pages[num_pag].extract_text()
-                
                 if query.lower() in texto.lower():
+                    # Encontrar códigos de 10 dígitos en las páginas con coincidencias
+                    codigos = re.findall(r'(\d{4}\.\d{2}\.\d{2}\.\d{2})', texto)
+                    for c in codigos:
+                        partidas_detectadas.add(c[:4]) # Guardamos solo los 4 primeros
+            
+            # PASO 2: Volver a recorrer para traer TODO lo que pertenezca a esas partidas
+            # Esto incluirá los "Los demás" que no tienen el nombre del material
+            if partidas_detectadas:
+                for num_pag in range(10, len(reader.pages)):
+                    texto = reader.pages[num_pag].extract_text()
                     lineas = texto.split('\n')
                     for i, linea in enumerate(lineas):
-                        if query.lower() in linea.lower():
-                            # 1. Extraer Código de 10 dígitos (Formato: XXXX.XX.XX.XX)
-                            cod_match = re.search(r'(\d{4}\.\d{2}\.\d{2}\.\d{2})', linea)
-                            
-                            # Si no está en la línea, buscamos en la anterior (jerarquía superior)
-                            if not cod_match and i > 0:
-                                cod_match = re.search(r'(\d{4}\.\d{2}\.\d{2}\.\d{2})', lineas[i-1])
-                            
-                            if cod_match:
-                                codigo = cod_match.group(1)
-                                partida = codigo[:4] # Los 4 dígitos raíz
-                                
-                                # 2. Extraer Gravamen (Último número de la línea)
-                                grav_match = re.findall(r'\s(\d{1,3})$', linea.strip())
-                                gravamen = grav_match[0] if grav_match else "0"
-                                
-                                # 3. Extraer Nombre/Descripción de la subpartida
-                                # Limpiamos la línea quitando el código y el gravamen
-                                nombre_subpartida = linea.replace(codigo, "").strip()
-                                nombre_subpartida = re.sub(r'\s\d{1,3}$', '', nombre_subpartida)
-                                
-                                # Si la descripción sigue en la siguiente línea (sangría)
-                                if i + 1 < len(lineas) and not re.match(r'^\d', lineas[i+1]):
-                                    nombre_subpartida += " " + lineas[i+1].strip()
-
-                                resultados.append({
-                                    "partida": partida,
-                                    "codigo": codigo,
-                                    "nombre": nombre_subpartida,
-                                    "arancel": gravamen
-                                })
+                        # Si la línea empieza con alguna de las partidas detectadas
+                        for p in partidas_detectadas:
+                            if linea.strip().startswith(p):
+                                cod_match = re.search(r'(\d{4}\.\d{2}\.\d{2}\.\d{2})', linea)
+                                if cod_match:
+                                    codigo = cod_match.group(1)
+                                    # Extraer gravamen (último número)
+                                    grav_match = re.findall(r'\s(\d{1,3})$', linea.strip())
+                                    gravamen = grav_match[0] if grav_match else "0"
+                                    # Limpiar nombre
+                                    nombre = linea.replace(codigo, "").strip()
+                                    nombre = re.sub(r'\s\d{1,3}$', '', nombre)
+                                    
+                                    resultados.append({
+                                        "partida": p,
+                                        "codigo": codigo,
+                                        "nombre": nombre,
+                                        "arancel": gravamen
+                                    })
             return resultados
     except Exception as e:
-        st.error(f"Error en lectura: {e}")
+        st.error(f"Error: {e}")
         return []
 
-# --- INTERFAZ DE USUARIO ---
-import os
+# --- INTERFAZ ---
 ruta_pdf = "decreto_1881_2021.pdf"
-
-busqueda = st.text_input("Ingrese material o código parcial:", placeholder="Ej: 8703 o Neumáticos")
+busqueda = st.text_input("Material a clasificar:", placeholder="Ej: Caballos")
 
 if busqueda:
-    with st.spinner('Analizando jerarquía arancelaria...'):
-        hallazgos = buscar_jerarquia_avanzada(busqueda, ruta_pdf)
+    with st.spinner('Buscando partidas y sus residuales (Los demás)...'):
+        datos = buscar_con_residuales(busqueda, ruta_pdf)
         
-        if hallazgos:
-            # Aquí se soluciona el NameError asegurando que pd y hallazgos existan
-            df_res = pd.DataFrame(hallazgos).drop_duplicates(subset=['codigo'])
-            
-            # Agrupamos por los 4 dígitos (Partida)
-            partidas_vistas = df_res['partida'].unique()
-            
-            for p in partidas_vistas:
+        if datos:
+            df = pd.DataFrame(datos).drop_duplicates(subset=['codigo'])
+            for p in df['partida'].unique():
                 st.markdown(f"### 📦 Partida Arancelaria: {p}")
-                # Filtramos todas las subpartidas que pertenecen a esa partida de 4 dígitos
-                opciones = df_res[df_res['partida'] == p]
+                st.caption(f"Mostrando todas las subpartidas de la partida {p} encontradas en el Decreto 1881")
                 
-                if len(opciones) > 1:
-                    st.warning(f"Se encontraron {len(opciones)} opciones para la partida {p}. Por favor, compare:")
-
-                for idx, row in opciones.iterrows():
-                    with st.expander(f"🔹 {row['codigo']} - {row['nombre'][:50]}..."):
-                        col1, col2 = st.columns([3, 1])
-                        with col1:
-                            st.write(f"**Descripción Completa:** {row['nombre']}")
-                        with col2:
-                            st.metric("Arancel (Grv)", f"{row['arancel']}%")
+                opciones = df[df['partida'] == p]
+                for _, row in opciones.iterrows():
+                    # Resaltar si es una subpartida residual
+                    label = f"🔴 {row['codigo']}" if "demás" in row['nombre'].lower() else f"🔹 {row['codigo']}"
+                    
+                    with st.expander(label):
+                        c1, c2 = st.columns([3, 1])
+                        with c1:
+                            st.write(f"**Descripción:** {row['nombre']}")
+                        with c2:
+                            st.metric("Arancel", f"{row['arancel']}%")
                         
-                        if st.button("Asociar esta subpartida", key=f"btn_{row['codigo']}_{idx}"):
-                            st.session_state['codigo_asociado'] = row['codigo']
-                            st.session_state['nombre_asociado'] = row['nombre']
-                            st.session_state['arancel_asociado'] = row['arancel']
-                            st.success(f"Código {row['codigo']} vinculado.")
+                        if st.button("Seleccionar", key=row['codigo']):
+                            st.session_state['cod_final'] = row['codigo']
+                            st.success(f"Seleccionado: {row['codigo']}")
                 st.divider()
         else:
-            st.error("No se encontraron coincidencias en el Decreto 1881.")
+            st.warning("No se encontraron coincidencias.")
