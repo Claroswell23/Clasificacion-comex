@@ -1,60 +1,51 @@
 import streamlit as st
 import pandas as pd
 import PyPDF2
-import io
+import os
 
-# --- CONFIGURACIÓN DE LA APP ---
-st.set_page_config(page_title="Simulador UTB - Decreto 1881", layout="wide")
+# --- INICIO DEL MÓDULO DE CLASIFICACIÓN ---
+def modulo_clasificacion_arancelaria():
+    st.header("🔍 Buscador Arancelario (Decreto 1881 de 2021)")
+    st.info("Consulta integral basada en el archivo PDF oficial cargado.")
 
-st.markdown("### 🔍 Buscador Arancelario de Alta Precisión")
-st.info("El sistema está consultando el archivo: **decreto_1881_2021.pdf**")
+    ruta_pdf = "decreto_1881_2021.pdf"
 
-# --- FUNCIÓN PARA PROCESAR EL PDF ---
-@st.cache_resource
-def procesar_decreto_pdf():
-    # En Streamlit, abrimos el archivo cargado
-    # Aquí simulamos la apertura del archivo que ya tienes en el entorno
-    with open("decreto_1881_2021.pdf", "rb") as f:
-        lector = PyPDF2.PdfReader(f)
-        texto_completo = ""
-        # Procesamos las páginas donde está la nomenclatura (ej. primeras 50 para velocidad)
-        for i in range(7, 100): 
-            texto_completo += lector.pages[i].extract_text()
-    return texto_completo
-
-# --- MOTOR DE BÚSQUEDA ---
-texto_arancel = procesar_decreto_pdf()
-
-query = st.text_input("📝 Escriba la subpartida o el producto (ej. '0101.21' o 'Bovinos'):")
-
-if query:
-    # Dividimos por líneas para simular la búsqueda por filas del decreto
-    lineas = texto_arancel.split('\n')
-    hallazgos = [l for l in lineas if query.lower() in l.lower()]
-
-    if hallazgos:
-        st.success(f"Se encontraron {len(hallazgos)} coincidencias en el texto oficial.")
+    # Verificamos si el archivo existe antes de intentar leerlo
+    if os.path.exists(ruta_pdf):
+        query = st.text_input("📝 Ingrese subpartida o nombre de producto:", placeholder="Ej: 8471 o Caballos")
         
-        # Mostramos los resultados en un formato limpio
-        for item in hallazgos[:15]: # Limitamos a 15 para no saturar
-            with st.expander(f"📖 Ver detalle: {item[:60]}..."):
-                st.write(f"**Texto extraído del Decreto:**")
-                st.code(item)
-                
-                # Botón para vincular al Formulario 500
-                if st.button("Usar estos datos en la liquidación", key=item):
-                    # Lógica para intentar extraer el número de gravamen al final de la línea
-                    st.toast("Datos enviados al Formulario 500")
+        if query:
+            with st.spinner('Escaneando el Decreto 1881...'):
+                try:
+                    with open(ruta_pdf, "rb") as f:
+                        reader = PyPDF2.PdfReader(f)
+                        resultados = []
+                        
+                        # Buscamos en una selección de páginas para optimizar velocidad
+                        # (Puedes aumentar el rango de páginas según necesites)
+                        for i in range(5, 150): 
+                            page_text = reader.pages[i].extract_text()
+                            if query.lower() in page_text.lower():
+                                # Extraemos la línea o párrafo que contiene el término
+                                for linea in page_text.split('\n'):
+                                    if query.lower() in linea.lower():
+                                        resultados.append(linea)
+                        
+                        if resultados:
+                            st.success(f"Se encontraron {len(resultados)} coincidencias.")
+                            for idx, r in enumerate(resultados[:20]): # Mostrar top 20
+                                with st.expander(f"Ver coincidencia {idx+1}"):
+                                    st.write(r)
+                                    # Botón para simular selección
+                                    if st.button("Usar estos datos", key=f"btn_{idx}"):
+                                        st.session_state['sub_activa'] = r
+                                        st.toast("Dato referenciado")
+                        else:
+                            st.warning("No se encontraron resultados exactos. Intente con términos más generales.")
+                except Exception as e:
+                    st.error(f"Error al leer el PDF: {e}")
     else:
-        st.error("No se encontró ese término exacto en las páginas procesadas.")
-else:
-    st.write("Introduzca un término para escanear el documento legal.")
+        st.error(f"⚠️ No se encontró el archivo '{ruta_pdf}'. Asegúrate de que esté subido en GitHub en la misma carpeta que app.py.")
 
-# --- DATOS EXTRAÍDOS DIRECTAMENTE DEL PDF PARA REFERENCIA ---
-with st.expander("📊 Muestra de Gravámenes Reales encontrados"):
-    st.write("Según el Capítulo 1 del archivo cargado:")
-    st.table({
-        "Subpartida": ["0101.21.00.00", "0101.29.10.00", "0102.21.00.10"],
-        "Mercancía": ["Reproductores de raza pura", "Para carrera", "Bovinos Hembras"],
-        "Gravamen (%)": [5, 10, 5]
-    }) # Datos validados en las páginas 8 y 9 del archivo
+# Ejecutar módulo
+modulo_clasificacion_arancelaria()
